@@ -1,342 +1,176 @@
---==================================================
--- EV03 BODY FLING V4.1 / V4.2 STANDALONE EDITION
+--========================================================
+-- EV03 STANDALONE SAFE CLIENT TEMPLATE
 -- Creator: 阿叶ev03
--- Executor LocalScript (No Server Required)
---==================================================
+-- Execution Target: Third-Party Executors (Xeno, etc.)
+--========================================================
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui", 10)
-if not PG then return end
+if not PG then
+    warn("[EV03] PlayerGui not found, script aborted.")
+    return
+end
 
---==================================================
--- CLEAN OLD GUI
---==================================================
+--========================================================
+-- 1. 安全防闪退 UI 渲染与兜底清理
+--========================================================
+local GUI_NAME = "EV03_STANDALONE_UI"
 
-local old = PG:FindFirstChild("EV03_BODY_FLING")
-if old then old:Destroy() end
-
-local RED = Color3.fromRGB(195, 30, 45)
-local GREEN = Color3.fromRGB(25, 160, 75)
-local BG = Color3.fromRGB(15, 15, 20)
-local PANEL = Color3.fromRGB(30, 30, 38)
-local WHITE = Color3.fromRGB(245, 245, 245)
+pcall(function()
+    local old = PG:FindFirstChild(GUI_NAME)
+    if old then old:Destroy() end
+end)
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "EV03_BODY_FLING"
+gui.Name = GUI_NAME
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = PG
 
-local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(440, 390)
-main.Position = UDim2.new(0.5, -220, 0.5, -195)
-main.BackgroundColor3 = BG
-main.BorderSizePixel = 0
-main.Active = true
-main.Parent = gui
+local success, err = pcall(function()
+    gui.Parent = PG
+end)
+
+if not success then
+    warn("[EV03] Failed to parent ScreenGui: ", err)
+    return
+end
+
+--========================================================
+-- 2. 纯客户端核心逻辑实现（不依赖任何服务端 Remote）
+--========================================================
+
+-- 安全获取角色及核心部件
+local function getLocalCharacterParts()
+    local char = LP.Character
+    if not char then return nil, nil, nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return nil, nil, nil end
+    return char, hum, root
+end
+
+-- 纯客户端穿墙 (Noclip) 核心逻辑
+local noclipActive = false
+RunService.Stepped:Connect(function()
+    if not noclipActive then return end
+    pcall(function()
+        local char = LP.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end)
+
+-- 纯客户端隐身 (Invisible) 本地透明度修改
+local invisibleActive = false
+local function setLocalInvisible(state)
+    invisibleActive = state
+    pcall(function()
+        local char = LP.Character
+        if not char then return end
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Decal") then
+                obj.Transparency = state and 1 or 0
+            end
+        end
+    end)
+end
+
+-- 纯客户端物理甩飞 (Fling) 兜底实现
+local function localFlingTarget(targetName)
+    pcall(function()
+        local targetPlayer = Players:FindFirstChild(targetName)
+        if not targetPlayer or targetPlayer == LP then return end
+        
+        local _, _, root = getLocalCharacterParts()
+        local _, targetHum, targetRoot = nil, nil, nil
+        
+        if targetPlayer.Character then
+            targetHum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+            targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        end
+        
+        if root and targetRoot and targetHum then
+            targetHum:ChangeState(Enum.HumanoidStateType.Freefall)
+            pcall(function() targetRoot:SetNetworkOwner(LP) end)
+            
+            local direction = (targetRoot.Position - root.Position).Unit
+            targetRoot.AssemblyLinearVelocity = direction * 80 + Vector3.new(0, 120, 0)
+            
+            task.delay(1.5, function()
+                pcall(function()
+                    targetRoot:SetNetworkOwnershipAuto()
+                end)
+            end)
+        end
+    end)
+end
+
+--========================================================
+-- 3. UI 交互与主面板构建 (带 pcall 保护)
+--========================================================
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.fromOffset(400, 300)
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -150)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true -- 简易自带拖动
+mainFrame.Parent = gui
 
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 10)
-corner.Parent = main
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = mainFrame
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = RED
-stroke.Thickness = 2
-stroke.Parent = main
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 40)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "EV03 STANDALONE EDITION"
+titleLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+titleLabel.TextSize = 14
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = mainFrame
 
-local function label(text, position, size, parent)
-	local obj = Instance.new("TextLabel")
-	obj.BackgroundTransparency = 1
-	obj.Position = position
-	obj.Size = size
-	obj.Text = text
-	obj.TextColor3 = WHITE
-	obj.TextSize = 13
-	obj.Font = Enum.Font.GothamBold
-	obj.TextXAlignment = Enum.TextXAlignment.Left
-	obj.Parent = parent
-	return obj
-end
+-- 示例：Noclip 切换按钮
+local noclipBtn = Instance.new("TextButton")
+noclipBtn.Size = UDim2.fromOffset(160, 35)
+noclipBtn.Position = UDim2.fromOffset(20, 60)
+noclipBtn.Text = "NOCLIP: OFF"
+noclipBtn.BackgroundColor3 = Color3.fromRGB(100, 20, 20)
+noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipBtn.Font = Enum.Font.GothamBold
+noclipBtn.TextSize = 12
+noclipBtn.Parent = mainFrame
 
-local function button(text, position, size, parent, callback)
-	local obj = Instance.new("TextButton")
-	obj.Position = position
-	obj.Size = size
-	obj.Text = text
-	obj.TextColor3 = WHITE
-	obj.BackgroundColor3 = RED
-	obj.TextSize = 13
-	obj.Font = Enum.Font.GothamBold
-	obj.BorderSizePixel = 0
-	obj.Parent = parent
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = noclipBtn
 
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = obj
-
-	obj.MouseButton1Click:Connect(function()
-		pcall(callback)
-	end)
-	return obj
-end
-
-local function input(placeholder, position, size, parent, default)
-	local obj = Instance.new("TextBox")
-	obj.Position = position
-	obj.Size = size
-	obj.Text = default or ""
-	obj.PlaceholderText = placeholder
-	obj.TextColor3 = WHITE
-	obj.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-	obj.BackgroundColor3 = PANEL
-	obj.TextSize = 13
-	obj.Font = Enum.Font.Gotham
-	obj.ClearTextOnFocus = false
-	obj.BorderSizePixel = 0
-	obj.Parent = parent
-
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = obj
-
-	return obj
-end
-
---==================================================
--- HEADER & DRAG
---==================================================
-
-local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 55)
-header.BackgroundColor3 = PANEL
-header.BorderSizePixel = 0
-header.Parent = main
-
-label(
-	"EV03 BODY FLING V4.2 [STANDALONE]",
-	UDim2.fromOffset(15, 5),
-	UDim2.new(1, -30, 0, 28),
-	header
-)
-
-label(
-	"CREATOR: 阿叶ev03",
-	UDim2.fromOffset(16, 32),
-	UDim2.new(1, -30, 0, 15),
-	header
-)
-
-local dragging = false
-local dragStart
-local startPos
-
-header.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = i.Position
-		startPos = main.Position
-	end
+noclipBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        noclipActive = not noclipActive
+        noclipBtn.Text = "NOCLIP: " .. (noclipActive and "ON" or "OFF")
+        noclipBtn.BackgroundColor3 = noclipActive and Color3.fromRGB(25, 150, 75) or Color3.fromRGB(100, 20, 20)
+    end)
 end)
 
-UIS.InputChanged:Connect(function(i)
-	if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = i.Position - dragStart
-		main.Position = UDim2.new(
-			startPos.X.Scale,
-			startPos.X.Offset + delta.X,
-			startPos.Y.Scale,
-			startPos.Y.Offset + delta.Y
-		)
-	end
+-- 菜单隐藏热键 (RightShift)
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        pcall(function()
+            gui.Enabled = not gui.Enabled
+        end)
+    end
 end)
 
-UIS.InputEnded:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
-	end
-end)
-
---==================================================
--- UI CONTROLS
---==================================================
-
-label("TARGET USERNAME", UDim2.fromOffset(18, 75), UDim2.fromOffset(200, 25), main)
-local targetInputBox = input("Example: ez", UDim2.fromOffset(18, 105), UDim2.fromOffset(400, 36), main)
-
-label("FLING POWER (1 - 100)", UDim2.fromOffset(18, 151), UDim2.fromOffset(200, 25), main)
-local powerInputBox = input("Power", UDim2.fromOffset(18, 181), UDim2.fromOffset(190, 36), main, "50")
-
-label("RETURN POSITION", UDim2.fromOffset(18, 231), UDim2.fromOffset(200, 25), main)
-local returnPosition = true
-
-local returnButton = button(
-	"RETURN POSITION: ON",
-	UDim2.fromOffset(220, 226),
-	UDim2.fromOffset(198, 36),
-	main,
-	function()
-		returnPosition = not returnPosition
-		returnButton.Text = "RETURN POSITION: " .. (returnPosition and "ON" or "OFF")
-		returnButton.BackgroundColor3 = returnPosition and GREEN or RED
-	end
-)
-
-local status = label("STATUS: READY", UDim2.fromOffset(18, 280), UDim2.fromOffset(400, 25), main)
-
-local function setStatus(message, color)
-	pcall(function()
-		status.Text = "STATUS: " .. message
-		status.TextColor3 = color or GREEN
-	end)
-end
-
---==================================================
--- LOCAL FLING LOGIC (CLIENT STANDALONE)
---==================================================
-
-local function getCharacter(plr)
-	if not plr or not plr.Character then return nil, nil, nil end
-	local char = plr.Character
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if not hum or not root or hum.Health <= 0 then return nil, nil, nil end
-	return char, hum, root
-end
-
-local function findMatches(prefix)
-	prefix = prefix:lower():match("^%s*(.-)%s*$")
-	local matches = {}
-	if prefix == "" then return matches end
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player.Name:lower():sub(1, #prefix) == prefix then
-			table.insert(matches, player)
-		end
-	end
-	return matches
-end
-
-local function flingTargetPlayer(targetPlayer, powerVal, shouldReturn)
-	local char, hum, root = getCharacter(targetPlayer)
-	if not char or not root then return false end
-
-	local _, _, adminRoot = getCharacter(LP)
-	if not adminRoot then return false end
-
-	local originalCFrame = root.CFrame
-	local direction = root.Position - adminRoot.Position
-	if direction.Magnitude < 0.01 then
-		direction = adminRoot.CFrame.LookVector
-	else
-		direction = direction.Unit
-	end
-
-	local power = math.clamp(tonumber(powerVal) or 50, 1, 100)
-
-	pcall(function()
-		root:SetNetworkOwner(LP)
-	end)
-
-	hum:ChangeState(Enum.HumanoidStateType.Freefall)
-
-	local impulse = (direction * power + Vector3.new(0, power * 0.8, 0)) * root.AssemblyMass
-	pcall(function()
-		root:ApplyImpulse(impulse)
-	end)
-
-	task.delay(2, function()
-		pcall(function()
-			if targetPlayer.Parent == Players and targetPlayer.Character == char and root.Parent == char and hum.Health > 0 then
-				if shouldReturn == true then
-					root.CFrame = originalCFrame
-					root.AssemblyLinearVelocity = Vector3.zero
-					root.AssemblyAngularVelocity = Vector3.zero
-					hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-				end
-				root:SetNetworkOwnershipAuto()
-			end
-		end)
-	end)
-
-	return true
-end
-
--- LOCK TARGET BUTTON
-button(
-	"LOCK TARGET",
-	UDim2.fromOffset(18, 320),
-	UDim2.fromOffset(190, 42),
-	main,
-	function()
-		local matches = findMatches(targetInputBox.Text)
-		if #matches == 0 then
-			setStatus("PLAYER NOT FOUND", RED)
-			return
-		end
-		if #matches > 1 then
-			local names = {}
-			for _, player in ipairs(matches) do
-				table.insert(names, player.Name)
-			end
-			setStatus("MULTIPLE: " .. table.concat(names, ", "), Color3.fromRGB(220, 175, 55))
-			return
-		end
-		targetInputBox.Text = matches[1].Name
-		setStatus("LOCKED: " .. matches[1].Name, GREEN)
-	end
-)
-
--- FLING TARGET BUTTON
-button(
-	"FLING TARGET",
-	UDim2.fromOffset(220, 320),
-	UDim2.fromOffset(198, 42),
-	main,
-	function()
-		local matches = findMatches(targetInputBox.Text)
-		if #matches ~= 1 then
-			setStatus("SELECT EXACTLY ONE PLAYER", RED)
-			return
-		end
-		local amount = tonumber(powerInputBox.Text)
-		if not amount then
-			setStatus("INVALID POWER", RED)
-			return
-		end
-
-		local success = flingTargetPlayer(matches[1], amount, returnPosition)
-		if success then
-			setStatus("FLING EXECUTED", GREEN)
-		else
-			setStatus("FLING FAILED", RED)
-		end
-	end
-)
-
--- PANIC / CLOSE
-button(
-	"PANIC / CLOSE",
-	UDim2.fromOffset(18, 370),
-	UDim2.fromOffset(400, 12),
-	main,
-	function()
-		pcall(function() gui:Destroy() end)
-	end
-)
-
--- MENU HOTKEY (RightShift)
-UIS.InputBegan:Connect(function(i, processed)
-	if processed then return end
-	if i.KeyCode == Enum.KeyCode.RightShift then
-		pcall(function()
-			gui.Enabled = not gui.Enabled
-		end)
-	end
-end)
-
-print("[EV03] BODY FLING V4.2 STANDALONE CLIENT READY")
-```[cite: 3, 4]
+print("[EV03] Standalone client script successfully loaded without server dependencies.")
